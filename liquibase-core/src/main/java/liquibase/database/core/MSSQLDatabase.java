@@ -9,6 +9,7 @@ import liquibase.database.OfflineConnection;
 import liquibase.statement.core.RawSqlStatement;
 import liquibase.structure.DatabaseObject;
 import liquibase.structure.core.Index;
+import liquibase.structure.core.Schema;
 import liquibase.structure.core.Table;
 import liquibase.structure.core.View;
 import liquibase.exception.DatabaseException;
@@ -30,8 +31,7 @@ public class MSSQLDatabase extends AbstractJdbcDatabase {
     public static final String PRODUCT_NAME = "Microsoft SQL Server";
     protected Set<String> systemTablesAndViews = new HashSet<String>();
 
-    private static Pattern INITIAL_COMMENT_PATTERN = Pattern.compile("^/\\*.*?\\*/");
-    private static Pattern CREATE_VIEW_AS_PATTERN = Pattern.compile("(?im)^\\s*(CREATE|ALTER)\\s+?VIEW\\s+?((\\S+?)|(\\[.*\\])|(\\\".*\\\"))\\s+?AS\\s*?", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    private static Pattern CREATE_VIEW_AS_PATTERN = Pattern.compile("(?im)^\\s*(CREATE|ALTER)\\s+VIEW\\s+(\\S+)\\s+?AS\\s*", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     @Override
     public String getShortName() {
@@ -67,8 +67,9 @@ public class MSSQLDatabase extends AbstractJdbcDatabase {
         systemTablesAndViews.add("syssegments");
         systemTablesAndViews.add("sysconstraints");
 
-        super.quotingStartCharacter ="[";
-        super.quotingEndCharacter="]";
+        super.quotingStartCharacter = "[";
+        super.quotingEndCharacter = "]";
+        super.quotingEndReplacement = "]]";
     }
 
 
@@ -277,7 +278,8 @@ public class MSSQLDatabase extends AbstractJdbcDatabase {
         if (objectName.contains("(")) { //probably a function
             return objectName;
         }
-        return this.quotingStartCharacter+objectName+this.quotingEndCharacter;
+
+        return quoteObject(objectName, objectType);
     }
 
     @Override
@@ -305,19 +307,23 @@ public class MSSQLDatabase extends AbstractJdbcDatabase {
         }
         String definition = sb.toString();
 
-        String finalDef =definition.replaceAll("\\r\\n", "\n");
-        finalDef = INITIAL_COMMENT_PATTERN.matcher(finalDef).replaceFirst("").trim(); //handle views that start with '/****** Script for XYZ command from SSMS  ******/'
-        finalDef = CREATE_VIEW_AS_PATTERN.matcher(finalDef).replaceFirst("").trim();
+        String finalDef =definition.replaceAll("\\r\\n", "\n").trim();
 
-        finalDef = finalDef.replaceAll("--.*", "").trim();
-
-        /**handle views that end up as '(select XYZ FROM ABC);' */
-        if (finalDef.startsWith("(") && (finalDef.endsWith(")") || finalDef.endsWith(");"))) {
-            finalDef = finalDef.replaceFirst("^\\(", "");
-            finalDef = finalDef.replaceFirst("\\);?$", "");
+        String selectOnly = CREATE_VIEW_AS_PATTERN.matcher(finalDef).replaceFirst("");
+        if (selectOnly.equals(finalDef)) {
+            return "FULL_DEFINITION: " + finalDef;
         }
 
-        return finalDef;
+        selectOnly = selectOnly.trim();
+
+
+        /**handle views that end up as '(select XYZ FROM ABC);' */
+        if (selectOnly.startsWith("(") && (selectOnly.endsWith(")") || selectOnly.endsWith(");"))) {
+            selectOnly = selectOnly.replaceFirst("^\\(", "");
+            selectOnly = selectOnly.replaceFirst("\\);?$", "");
+        }
+
+        return selectOnly;
     }
 
     /**
@@ -333,7 +339,7 @@ public class MSSQLDatabase extends AbstractJdbcDatabase {
     @Override
     public String getJdbcSchemaName(CatalogAndSchema schema) {
         String schemaName = super.getJdbcSchemaName(schema);
-        if (schemaName != null) {
+        if (schemaName != null && ! isCaseSensitive()) {
             schemaName = schemaName.toLowerCase();
         }
         return schemaName;
@@ -345,8 +351,10 @@ public class MSSQLDatabase extends AbstractJdbcDatabase {
         if (caseSensitive == null) {
             try {
                 if (getConnection() != null) {
-                    String collation = ExecutorService.getInstance().getExecutor(this).queryForObject(new RawSqlStatement("SELECT CONVERT(varchar(100), SERVERPROPERTY('COLLATION'))"), String.class);
-                    caseSensitive = ! collation.contains("_CI_");
+                  String catalog = getConnection().getCatalog();
+                  String sql = String.format("SELECT CONVERT(varchar(100), DATABASEPROPERTYEX('%s', 'COLLATION'))", catalog);
+                  String collation = ExecutorService.getInstance().getExecutor(this).queryForObject(new RawSqlStatement(sql), String.class);
+                  caseSensitive = ! collation.contains("_CI_");
                 }
             } catch (Exception e) {
                 LogFactory.getLogger().warning("Cannot determine case sensitivity from MSSQL", e);
@@ -358,5 +366,112 @@ public class MSSQLDatabase extends AbstractJdbcDatabase {
         } else {
             return caseSensitive.booleanValue();
         }
+    }
+
+    @Override
+    public int getDataTypeMaxParameters(String dataTypeName) {
+        if ("bigint".equalsIgnoreCase(dataTypeName)
+                || "bit".equalsIgnoreCase(dataTypeName)
+                || "date".equalsIgnoreCase(dataTypeName)
+                || "datetime".equalsIgnoreCase(dataTypeName)
+                || "geography".equalsIgnoreCase(dataTypeName)
+                || "geometry".equalsIgnoreCase(dataTypeName)
+                || "hierarchyid".equalsIgnoreCase(dataTypeName)
+                || "image".equalsIgnoreCase(dataTypeName)
+                || "int".equalsIgnoreCase(dataTypeName)
+                || "money".equalsIgnoreCase(dataTypeName)
+                || "ntext".equalsIgnoreCase(dataTypeName)
+                || "real".equalsIgnoreCase(dataTypeName)
+                || "smalldatetime".equalsIgnoreCase(dataTypeName)
+                || "smallint".equalsIgnoreCase(dataTypeName)
+                || "smallmoney".equalsIgnoreCase(dataTypeName)
+                || "text".equalsIgnoreCase(dataTypeName)
+                || "timestamp".equalsIgnoreCase(dataTypeName)
+                || "tinyint".equalsIgnoreCase(dataTypeName)
+                || "rowversion".equalsIgnoreCase(dataTypeName)
+                || "sql_variant".equalsIgnoreCase(dataTypeName)
+                || "sysname".equalsIgnoreCase(dataTypeName)
+                || "uniqueidentifier".equalsIgnoreCase(dataTypeName)) {
+
+            return 0;
+        }
+
+        if ("binary".equalsIgnoreCase(dataTypeName)
+                || "char".equalsIgnoreCase(dataTypeName)
+                || "datetime2".equalsIgnoreCase(dataTypeName)
+                || "datetimeoffset".equalsIgnoreCase(dataTypeName)
+                || "float".equalsIgnoreCase(dataTypeName)
+                || "nchar".equalsIgnoreCase(dataTypeName)
+                || "nvarchar".equalsIgnoreCase(dataTypeName)
+                || "time".equalsIgnoreCase(dataTypeName)
+                || "varbinary".equalsIgnoreCase(dataTypeName)
+                || "varchar".equalsIgnoreCase(dataTypeName)
+                || "xml".equalsIgnoreCase(dataTypeName)) {
+
+            return 1;
+        }
+
+        return 2;
+    }
+
+    @Override
+    public String escapeDataTypeName(String dataTypeName) {
+        int indexOfPeriod = dataTypeName.indexOf('.');
+
+        if (indexOfPeriod < 0) {
+            if (!dataTypeName.startsWith(quotingStartCharacter)) {
+                dataTypeName = escapeObjectName(dataTypeName, DatabaseObject.class);
+            }
+
+            return dataTypeName;
+        }
+
+        String schemaName = dataTypeName.substring(0, indexOfPeriod);
+        if (!schemaName.startsWith(quotingStartCharacter)) {
+            schemaName = escapeObjectName(schemaName, Schema.class);
+        }
+
+        dataTypeName = dataTypeName.substring(indexOfPeriod + 1, dataTypeName.length());
+        if (!dataTypeName.startsWith(quotingStartCharacter)) {
+            dataTypeName = escapeObjectName(dataTypeName, DatabaseObject.class);
+        }
+
+        return schemaName + "." + dataTypeName;
+    }
+
+    @Override
+    public String unescapeDataTypeName(String dataTypeName) {
+         int indexOfPeriod = dataTypeName.indexOf('.');
+
+         if (indexOfPeriod < 0) {
+             if (dataTypeName.matches("\\[[^]\\[]++\\]")) {
+                 dataTypeName = dataTypeName.substring(1, dataTypeName.length() - 1);
+             }
+
+             return dataTypeName;
+         }
+
+         String schemaName = dataTypeName.substring(0, indexOfPeriod);
+         if (schemaName.matches("\\[[^]\\[]++\\]")) {
+             schemaName = schemaName.substring(1, schemaName.length() - 1);
+         }
+
+         dataTypeName = dataTypeName.substring(indexOfPeriod + 1, dataTypeName.length());
+         if (dataTypeName.matches("\\[[^]\\[]++\\]")) {
+             dataTypeName = dataTypeName.substring(1, dataTypeName.length() - 1);
+         }
+
+         return schemaName + "." + dataTypeName;
+    }
+
+    @Override
+    public String unescapeDataTypeString(String dataTypeString) {
+        int indexOfLeftParen = dataTypeString.indexOf('(');
+        if (indexOfLeftParen < 0) {
+            return unescapeDataTypeName(dataTypeString);
+        }
+
+        return unescapeDataTypeName(dataTypeString.substring(0, indexOfLeftParen))
+                + dataTypeString.substring(indexOfLeftParen);
     }
 }

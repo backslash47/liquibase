@@ -8,6 +8,8 @@ import liquibase.sql.UnparsedSql;
 import liquibase.sqlgenerator.SqlGenerator;
 import liquibase.sqlgenerator.SqlGeneratorChain;
 import liquibase.statement.core.AddUniqueConstraintStatement;
+import liquibase.structure.core.Column;
+import liquibase.structure.core.Index;
 import liquibase.structure.core.Table;
 import liquibase.structure.core.UniqueConstraint;
 import liquibase.util.StringUtils;
@@ -29,6 +31,10 @@ public class AddUniqueConstraintGenerator extends AbstractSqlGenerator<AddUnique
         ValidationErrors validationErrors = new ValidationErrors();
         validationErrors.checkRequiredField("columnNames", addUniqueConstraintStatement.getColumnNames());
         validationErrors.checkRequiredField("tableName", addUniqueConstraintStatement.getTableName());
+
+        if (!(database instanceof OracleDatabase)) {
+            validationErrors.checkDisallowedField("forIndexName", addUniqueConstraintStatement.getForIndexName(), database);
+        }
         return validationErrors;
     }
 
@@ -75,6 +81,10 @@ public class AddUniqueConstraintGenerator extends AbstractSqlGenerator<AddUnique
             }
         }
 
+        if (statement.getForIndexName() != null) {
+            sql += " USING INDEX "+database.escapeObjectName(statement.getForIndexCatalogName(), statement.getForIndexSchemaName(), statement.getForIndexName(), Index.class);
+        }
+
         return new Sql[] {
                 new UnparsedSql(sql, getAffectedUniqueConstraint(statement))
         };
@@ -86,7 +96,7 @@ public class AddUniqueConstraintGenerator extends AbstractSqlGenerator<AddUnique
                 .setName(statement.getConstraintName())
                 .setTable((Table) new Table().setName(statement.getTableName()).setSchema(statement.getCatalogName(), statement.getSchemaName()));
         int i = 0;
-        for (String column : StringUtils.splitAndTrim(statement.getColumnNames(), ",")) {
+        for (Column column : Column.listFromNames(statement.getColumnNames())) {
             uniqueConstraint.addColumn(i++, column);
         }
         return uniqueConstraint;

@@ -7,7 +7,7 @@ import liquibase.datatype.DatabaseDataType;
 import liquibase.datatype.LiquibaseDataType;
 import liquibase.statement.DatabaseFunction;
 
-@DataTypeInfo(name="bigint", aliases = {"java.sql.Types.BIGINT", "java.math.BigInteger", "java.lang.Long", "integer8", "bigserial", "serial8"}, minParameters = 0, maxParameters = 1, priority = LiquibaseDataType.PRIORITY_DEFAULT)
+@DataTypeInfo(name="bigint", aliases = {"java.sql.Types.BIGINT", "java.math.BigInteger", "java.lang.Long", "integer8", "bigserial", "serial8", "int8"}, minParameters = 0, maxParameters = 1, priority = LiquibaseDataType.PRIORITY_DEFAULT)
 public class BigIntType extends LiquibaseDataType {
 
     private boolean autoIncrement;
@@ -32,8 +32,16 @@ public class BigIntType extends LiquibaseDataType {
         if (database instanceof OracleDatabase) {
             return new DatabaseDataType("NUMBER", 38,0);
         }
+        if (database instanceof MSSQLDatabase) {
+            return new DatabaseDataType(database.escapeDataTypeName("bigint"));
+        }
+        if (database instanceof MySQLDatabase) {
+            DatabaseDataType type = new DatabaseDataType("BIGINT", getParameters());
+            type.addAdditionalInformation(getAdditionalInformation());
+            return type;
+        }
         if (database instanceof DB2Database || database instanceof DerbyDatabase
-                || database instanceof MSSQLDatabase || database instanceof HsqlDatabase || database instanceof FirebirdDatabase) {
+                || database instanceof HsqlDatabase || database instanceof FirebirdDatabase) {
             return new DatabaseDataType("BIGINT");
         }
         if (database instanceof PostgresDatabase) {

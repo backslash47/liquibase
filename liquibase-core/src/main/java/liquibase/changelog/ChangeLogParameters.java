@@ -2,6 +2,8 @@ package liquibase.changelog;
 
 import liquibase.ContextExpression;
 import liquibase.Contexts;
+import liquibase.LabelExpression;
+import liquibase.Labels;
 import liquibase.configuration.LiquibaseConfiguration;
 import liquibase.parser.ChangeLogParserCofiguration;
 import liquibase.database.Database;
@@ -9,9 +11,7 @@ import liquibase.database.DatabaseList;
 import liquibase.exception.DatabaseException;
 import liquibase.util.StringUtils;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -21,13 +21,14 @@ public class ChangeLogParameters {
     private ExpressionExpander expressionExpander;
     private Database currentDatabase;
     private Contexts currentContexts;
+    private LabelExpression currentLabelExpression;
 
     public ChangeLogParameters() {
         this(null);
     }
 
     public ChangeLogParameters(Database database) {
-        for (Map.Entry entry : System.getProperties().entrySet()) {
+        for (Map.Entry entry : new HashSet<Map.Entry>(System.getProperties().entrySet())) {
             changeLogParameters.add(new ChangeLogParameter(entry.getKey().toString(), entry.getValue()));
         }
 
@@ -73,6 +74,7 @@ public class ChangeLogParameters {
         this.expressionExpander = new ExpressionExpander(this);
         this.currentDatabase = database;
         this.currentContexts = new Contexts();
+        this.currentLabelExpression = new LabelExpression();
     }
 
     public void setContexts(Contexts contexts) {
@@ -84,14 +86,31 @@ public class ChangeLogParameters {
     }
 
     public void set(String paramter, Object value) {
-        changeLogParameters.add(new ChangeLogParameter(paramter, value));
+    	// TODO: this was a bug. Muliple created parameters have been created, but the corresponding method in #findParameter() is only catching the first one. So here we should eliminate duplicate entries
+		ChangeLogParameter param = findParameter(paramter, null);
+		if (param == null) {
+			// okay add it
+	        changeLogParameters.add(new ChangeLogParameter(paramter, value));
+		}
     }
 
-    public void set(String key, String value, String contexts, String databases) {
-        set(key, value, new ContextExpression(contexts), databases);
+    public void set(String key, String value, String contexts, String labels, String databases, boolean globalParam, DatabaseChangeLog changeLog) {
+        set(key, value, new ContextExpression(contexts), new Labels(labels), databases, globalParam, changeLog);
     }
-    public void set(String key, String value, ContextExpression contexts, String databases) {
-        changeLogParameters.add(new ChangeLogParameter(key, value, contexts, databases));
+    
+    public void set(String key, String value, ContextExpression contexts, Labels labels, String databases, boolean globalParam, DatabaseChangeLog changeLog) {
+    	// TODO: this was a bug. Muliple created parameters have been created, but the corresponding method in #findParameter() is only catching the first one. So here we should eliminate duplicate entries
+    	if (globalParam == true) {
+    		// if it is global param ignore additional adds
+    		ChangeLogParameter param = findParameter(key, null);
+    		if (param == null) {
+    			// okay add it
+    	        changeLogParameters.add(new ChangeLogParameter(key, value, contexts, labels, databases, globalParam, changeLog));
+    		}
+    	} else {
+    		//this is a non-global param, just add it
+    		changeLogParameters.add(new ChangeLogParameter(key, value, contexts, labels, databases, globalParam, changeLog));
+    	}
     }
 
     /**
@@ -101,52 +120,82 @@ public class ChangeLogParameters {
      * @return The parameter value or null if not found. (Note that null can also be return if it is the parameter value. For
      *         strict parameter existence use {@link #hasValue(String)))
      */
-    public Object getValue(String key) {
-        ChangeLogParameter parameter = findParameter(key);
+    public Object getValue(String key, DatabaseChangeLog changeLog) {
+        ChangeLogParameter parameter = findParameter(key, changeLog);
         return parameter != null ? parameter.getValue() : null;
     }
 
-    private ChangeLogParameter findParameter(String key) {
+    private ChangeLogParameter findParameter(String key, DatabaseChangeLog changeLog) {
+    	ChangeLogParameter result = null;
+    	
+    	List<ChangeLogParameter> found = new ArrayList<ChangeLogParameter>();
         for (ChangeLogParameter param : changeLogParameters) {
             if (param.getKey().equalsIgnoreCase(key) && param.isValid()) {
-                return param;
+            	found.add(param);
             }
         }
-        return null;
+        
+        if (found.size() == 1) {
+        	// this case is typically a global param, but could also be a unique non-global param in one specific changelog
+        	result = found.get(0);
+        } else if (found.size() > 1) {
+        	for (ChangeLogParameter changeLogParameter : found) {
+				if (changeLogParameter.getChangeLog() == changeLog) {
+					result = changeLogParameter;
+				}
+			}
+        }
+        
+        return result;
     }
 
-    public boolean hasValue(String key) {
-        return findParameter(key) != null;
+    public boolean hasValue(String key, DatabaseChangeLog changeLog) {
+        return findParameter(key, changeLog) != null;
     }
 
-    public String expandExpressions(String string) {
-        return expressionExpander.expandExpressions(string);
+    public String expandExpressions(String string, DatabaseChangeLog changeLog) {
+        return expressionExpander.expandExpressions(string, changeLog);
+    }
+
+    public void setLabels(LabelExpression labels) {
+        this.currentLabelExpression = labels;
+    }
+
+    public LabelExpression getLabels() {
+        return currentLabelExpression;
     }
 
     private class ChangeLogParameter {
         private String key;
         private Object value;
         private ContextExpression validContexts;
+        private Labels labels;
         private List<String> validDatabases;
+        /** is this parameter a global parameter, means globally over all changesets. */
+        private boolean global = true;
+        private DatabaseChangeLog changeLog;
 
         public ChangeLogParameter(String key, Object value) {
             this.key = key;
             this.value = value;
         }
 
-        public ChangeLogParameter(String key, Object value, String validContexts, String validDatabases) {
-            this(key, value, new ContextExpression(validContexts), StringUtils.splitAndTrim(validDatabases, ","));
+        public ChangeLogParameter(String key, Object value, String validContexts, String labels, String validDatabases, boolean globalParam, DatabaseChangeLog changeLog) {
+            this(key, value, new ContextExpression(validContexts), new Labels(labels), StringUtils.splitAndTrim(validDatabases, ","), globalParam, changeLog);
         }
 
-        private ChangeLogParameter(String key, Object value, ContextExpression validContexts, String validDatabases) {
-            this(key, value, validContexts, StringUtils.splitAndTrim(validDatabases, ","));
+        private ChangeLogParameter(String key, Object value, ContextExpression validContexts, Labels labels, String validDatabases, boolean globalParam, DatabaseChangeLog changeLog) {
+            this(key, value, validContexts, labels, StringUtils.splitAndTrim(validDatabases, ","), globalParam, changeLog);
         }
 
-        public ChangeLogParameter(String key, Object value, ContextExpression validContexts, List<String> validDatabases) {
+        public ChangeLogParameter(String key, Object value, ContextExpression validContexts, Labels labels, List<String> validDatabases, boolean globalParam, DatabaseChangeLog changeLog) {
             this.key = key;
             this.value = value;
             this.validContexts = validContexts;
+            this.labels = labels;
             this.validDatabases = validDatabases;
+            this.global = globalParam;
+            this.changeLog = changeLog;
         }
 
         public String getKey() {
@@ -165,6 +214,10 @@ public class ChangeLogParameters {
             return validContexts;
         }
 
+        public Labels getLabels() {
+            return labels;
+        }
+
         @Override
         public String toString() {
             return getValue().toString();
@@ -174,11 +227,23 @@ public class ChangeLogParameters {
             boolean isValid = validContexts == null || validContexts.matches(ChangeLogParameters.this.currentContexts);
 
             if (isValid) {
+                isValid = labels == null || currentLabelExpression == null || currentLabelExpression.matches(labels);
+            }
+
+            if (isValid) {
                 isValid = DatabaseList.definitionMatches(validDatabases, currentDatabase, true);
             }
 
             return isValid;
         }
+
+		public boolean isGlobal() {
+			return global;
+		}
+
+		public DatabaseChangeLog getChangeLog() {
+			return changeLog;
+		}
     }
 
     protected static class ExpressionExpander {
@@ -191,7 +256,7 @@ public class ChangeLogParameters {
             this.enableEscaping = LiquibaseConfiguration.getInstance().getConfiguration(ChangeLogParserCofiguration.class).getSupportPropertyEscaping();
         }
 
-        public String expandExpressions(String text) {
+        public String expandExpressions(String text, DatabaseChangeLog changeLog) {
             if (text == null) {
                 return null;
             }
@@ -203,7 +268,7 @@ public class ChangeLogParameters {
 
                 Object value = enableEscaping && valueTolookup.startsWith(":") 
                 		? null 
-                		: changeLogParameters.getValue(valueTolookup);
+                		: changeLogParameters.getValue(valueTolookup, changeLog);
 
                 if (value != null) {
                     text = text.replace(expressionString, value.toString());

@@ -1,6 +1,7 @@
 package liquibase.command;
 
 import liquibase.database.Database;
+import liquibase.exception.LiquibaseException;
 import liquibase.executor.Executor;
 import liquibase.executor.ExecutorService;
 import liquibase.statement.core.RawSqlStatement;
@@ -18,6 +19,7 @@ public class ExecuteSqlCommand extends AbstractCommand {
     private Database database;
     private String sql;
     private String sqlFile;
+    private String delimiter = ";";
 
     @Override
     public String getName() {
@@ -48,6 +50,10 @@ public class ExecuteSqlCommand extends AbstractCommand {
         this.sqlFile = sqlFile;
     }
 
+    public void setDelimiter(String delimiter) {
+      this.delimiter = delimiter;
+    }
+    
     @Override
     public CommandValidationErrors validate() {
         CommandValidationErrors commandValidationErrors = new CommandValidationErrors(this);
@@ -61,11 +67,15 @@ public class ExecuteSqlCommand extends AbstractCommand {
         if (sqlFile == null) {
             sqlText = sql;
         } else {
-             sqlText = FileUtil.getContents(new File(sqlFile));
+            File file = new File(sqlFile);
+            if (! file.exists()){
+              throw new LiquibaseException(String.format("The file '%s' does not exist", file.getCanonicalPath()));
+            }
+            sqlText = FileUtil.getContents(file);
         }
 
         String out = "";
-        String[] sqlStrings = StringUtils.processMutliLineSQL(sqlText, true, true, ";");
+        String[] sqlStrings = StringUtils.processMutliLineSQL(sqlText, true, true, delimiter);
         for (String sql : sqlStrings) {
             if (sql.toLowerCase().matches("\\s*select .*")) {
                 List<Map<String, ?>> rows = executor.queryForList(new RawSqlStatement(sql));
@@ -92,6 +102,8 @@ public class ExecuteSqlCommand extends AbstractCommand {
             }
             out += "\n";
         }
+        database.commit();
         return out.trim();
     }
+
 }

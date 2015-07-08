@@ -49,6 +49,11 @@ public class MissingColumnChangeGenerator implements MissingObjectChangeGenerato
             return null;
         }
 
+        if (column.getRelation().getSnapshotId() == null) { //not an actual table, maybe an alias, maybe in a different schema. Don't fix it.
+            return null;
+        }
+
+
         AddColumnChange change = new AddColumnChange();
         change.setTableName(column.getRelation().getName());
         if (control.getIncludeCatalog()) {
@@ -66,6 +71,7 @@ public class MissingColumnChangeGenerator implements MissingObjectChangeGenerato
         columnConfig.setType(dataType);
 
         Object defaultValue = column.getDefaultValue();
+        MissingTableChangeGenerator.setDefaultValue(columnConfig, column, comparisonDatabase);
         if (defaultValue != null) {
             String defaultValueString = null;
             try {

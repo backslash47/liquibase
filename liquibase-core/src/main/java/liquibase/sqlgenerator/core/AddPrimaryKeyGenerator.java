@@ -7,6 +7,7 @@ import liquibase.sql.Sql;
 import liquibase.sql.UnparsedSql;
 import liquibase.sqlgenerator.SqlGeneratorChain;
 import liquibase.statement.core.AddPrimaryKeyStatement;
+import liquibase.structure.core.Index;
 import liquibase.structure.core.PrimaryKey;
 import liquibase.structure.core.Table;
 import liquibase.util.StringUtils;
@@ -23,6 +24,17 @@ public class AddPrimaryKeyGenerator extends AbstractSqlGenerator<AddPrimaryKeySt
         ValidationErrors validationErrors = new ValidationErrors();
         validationErrors.checkRequiredField("columnNames", addPrimaryKeyStatement.getColumnNames());
         validationErrors.checkRequiredField("tableName", addPrimaryKeyStatement.getTableName());
+
+        if (!(database instanceof MSSQLDatabase)) {
+            if (!addPrimaryKeyStatement.isClustered()) {
+                validationErrors.checkDisallowedField("clustered", addPrimaryKeyStatement.isClustered(), database);
+            }
+        }
+
+        if (!(database instanceof OracleDatabase)) {
+            validationErrors.checkDisallowedField("forIndexName", addPrimaryKeyStatement.getForIndexName(), database);
+        }
+
         return validationErrors;
     }
 
@@ -32,7 +44,15 @@ public class AddPrimaryKeyGenerator extends AbstractSqlGenerator<AddPrimaryKeySt
         if (statement.getConstraintName() == null  || database instanceof MySQLDatabase || database instanceof SybaseASADatabase) {
             sql = "ALTER TABLE " + database.escapeTableName(statement.getCatalogName(), statement.getSchemaName(), statement.getTableName()) + " ADD PRIMARY KEY (" + database.escapeColumnNameList(statement.getColumnNames()) + ")";
         } else {
-            sql = "ALTER TABLE " + database.escapeTableName(statement.getCatalogName(), statement.getSchemaName(), statement.getTableName()) + " ADD CONSTRAINT " + database.escapeConstraintName(statement.getConstraintName()) + " PRIMARY KEY (" + database.escapeColumnNameList(statement.getColumnNames()) + ")";
+            sql = "ALTER TABLE " + database.escapeTableName(statement.getCatalogName(), statement.getSchemaName(), statement.getTableName()) + " ADD CONSTRAINT " + database.escapeConstraintName(statement.getConstraintName())+" PRIMARY KEY";
+            if (database instanceof MSSQLDatabase && !statement.isClustered()) {
+                if (statement.isClustered()) {
+                    sql += " CLUSTERED";
+                } else {
+                    sql += " NONCLUSTERED";
+                }
+            }
+            sql += " (" + database.escapeColumnNameList(statement.getColumnNames()) + ")";
         }
 
         if (StringUtils.trimToNull(statement.getTablespace()) != null && database.supportsTablespaces()) {
@@ -43,6 +63,10 @@ public class AddPrimaryKeyGenerator extends AbstractSqlGenerator<AddPrimaryKeySt
             } else {
                 sql += " USING INDEX TABLESPACE "+statement.getTablespace();
             }
+        }
+
+        if (statement.getForIndexName() != null) {
+            sql += " USING INDEX "+database.escapeObjectName(statement.getForIndexCatalogName(), statement.getForIndexSchemaName(), statement.getForIndexName(), Index.class);
         }
 
         return new Sql[] {

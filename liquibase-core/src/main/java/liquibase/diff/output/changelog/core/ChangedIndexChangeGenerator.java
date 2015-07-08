@@ -7,10 +7,13 @@ import liquibase.change.core.DropIndexChange;
 import liquibase.database.Database;
 import liquibase.diff.Difference;
 import liquibase.diff.ObjectDifferences;
+import liquibase.diff.compare.DatabaseObjectComparatorFactory;
 import liquibase.diff.output.DiffOutputControl;
 import liquibase.diff.output.changelog.ChangeGeneratorChain;
+import liquibase.diff.output.changelog.ChangeGeneratorFactory;
 import liquibase.diff.output.changelog.ChangedObjectChangeGenerator;
 import liquibase.structure.DatabaseObject;
+import liquibase.structure.core.Column;
 import liquibase.structure.core.Index;
 import liquibase.structure.core.UniqueConstraint;
 import liquibase.util.StringUtils;
@@ -42,15 +45,31 @@ public class ChangedIndexChangeGenerator implements ChangedObjectChangeGenerator
     public Change[] fixChanged(DatabaseObject changedObject, ObjectDifferences differences, DiffOutputControl control, Database referenceDatabase, Database comparisonDatabase, ChangeGeneratorChain chain) {
         Index index = (Index) changedObject;
 
-        DropIndexChange dropIndexChange = new DropIndexChange();
+        if (index.getTable() != null) {
+            if (index.getTable().getPrimaryKey() != null && DatabaseObjectComparatorFactory.getInstance().isSameObject(index.getTable().getPrimaryKey().getBackingIndex(), changedObject, comparisonDatabase)) {
+                return ChangeGeneratorFactory.getInstance().fixChanged(index.getTable().getPrimaryKey(), differences, control, referenceDatabase, comparisonDatabase);
+            }
+
+            List<UniqueConstraint> uniqueConstraints = index.getTable().getUniqueConstraints();
+            if (uniqueConstraints != null) {
+                for (UniqueConstraint constraint : uniqueConstraints) {
+                    if (constraint.getBackingIndex() != null && DatabaseObjectComparatorFactory.getInstance().isSameObject(constraint.getBackingIndex(), changedObject, comparisonDatabase)) {
+                        return ChangeGeneratorFactory.getInstance().fixChanged(constraint, differences, control, referenceDatabase, comparisonDatabase);
+                    }
+
+                }
+            }
+        }
+
+        DropIndexChange dropIndexChange = createDropIndexChange();
         dropIndexChange.setTableName(index.getTable().getName());
         dropIndexChange.setIndexName(index.getName());
         
-        CreateIndexChange addIndexChange = new CreateIndexChange();
+        CreateIndexChange addIndexChange = createCreateIndexChange();
         addIndexChange.setTableName(index.getTable().getName());
         List<AddColumnConfig> columns = new ArrayList<AddColumnConfig>();
-        for (String col : index.getColumns()) {
-            columns.add((AddColumnConfig) new AddColumnConfig().setName(col));
+        for (Column col : index.getColumns()) {
+            columns.add(new AddColumnConfig(col));
         }
         addIndexChange.setColumns(columns);
         addIndexChange.setIndexName(index.getName());
@@ -65,27 +84,40 @@ public class ChangedIndexChangeGenerator implements ChangedObjectChangeGenerator
             addIndexChange.setSchemaName(index.getSchema().getName());
         }
 
-        Difference columnNames = differences.getDifference("columnNames");
+        Difference columnsDifference = differences.getDifference("columns");
         
-        if (columnNames != null) {
-            String referenceColumns = StringUtils.join(
-                (Collection<String>) columnNames.getReferenceValue(), ",");
-            String comparedColumns = StringUtils.join(
-                (Collection<String>) columnNames.getComparedValue(), ",");
-    
+        if (columnsDifference != null) {
+            List<Column> referenceColumns = (List<Column>) columnsDifference.getReferenceValue();
+            List<Column> comparedColumns = (List<Column>) columnsDifference.getComparedValue();
+
+            StringUtils.StringUtilsFormatter<Column> formatter = new StringUtils.StringUtilsFormatter<Column>() {
+                @Override
+                public String toString(Column obj) {
+                    return obj.toString(false);
+                }
+            };
+
             control.setAlreadyHandledChanged(new Index().setTable(index.getTable()).setColumns(referenceColumns));
-            if (!referenceColumns.equalsIgnoreCase(comparedColumns)) {
+            if (!StringUtils.join(referenceColumns, ",", formatter).equalsIgnoreCase(StringUtils.join(comparedColumns, ",", formatter))) {
                 control.setAlreadyHandledChanged(new Index().setTable(index.getTable()).setColumns(comparedColumns));
             }
     
             if (index.isUnique() != null && index.isUnique()) {
                 control.setAlreadyHandledChanged(new UniqueConstraint().setTable(index.getTable()).setColumns(referenceColumns));
-                if (!referenceColumns.equalsIgnoreCase(comparedColumns)) {
+                if (!StringUtils.join(referenceColumns, ",", formatter).equalsIgnoreCase(StringUtils.join(comparedColumns, ",", formatter))) {
                     control.setAlreadyHandledChanged(new UniqueConstraint().setTable(index.getTable()).setColumns(comparedColumns));
                 }
             }
         }
 
         return new Change[] { dropIndexChange, addIndexChange };
+    }
+
+    protected DropIndexChange createDropIndexChange() {
+        return new DropIndexChange();
+    }
+
+    protected CreateIndexChange createCreateIndexChange() {
+        return new CreateIndexChange();
     }
 }

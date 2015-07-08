@@ -53,22 +53,37 @@ public class UniqueConstraintComparator implements DatabaseObjectComparator {
         int thisConstraintSize = thisConstraint.getColumns().size();
         int otherConstraintSize = otherConstraint.getColumns().size();
 
-        if (thisConstraintSize > 0 && otherConstraintSize > 0 && thisConstraintSize != otherConstraintSize) {
-            return false;
-        }
-
-        if (thisConstraint.getTable() != null && otherConstraint.getTable() != null && thisConstraintSize > 0 && otherConstraintSize > 0) {
+        if (thisConstraint.getTable() != null && otherConstraint.getTable() != null) {
             if (!DatabaseObjectComparatorFactory.getInstance().isSameObject(thisConstraint.getTable(), otherConstraint.getTable(), accordingTo)) {
                 return false;
             }
+            if (databaseObject1.getSchema() != null && databaseObject2.getSchema() != null && !DatabaseObjectComparatorFactory.getInstance().isSameObject(databaseObject1.getSchema(), databaseObject2.getSchema(), accordingTo)) {
+                return false;
+            }
 
-            for (int i=0; i< otherConstraintSize; i++) {
-                if (! DatabaseObjectComparatorFactory.getInstance().isSameObject(new Column().setName(thisConstraint.getColumns().get(i)).setRelation(thisConstraint.getTable()), new Column().setName(otherConstraint.getColumns().get(i)).setRelation(otherConstraint.getTable()), accordingTo)) {
+            if (databaseObject1.getName() != null && databaseObject2.getName() != null && DefaultDatabaseObjectComparator.nameMatches(databaseObject1, databaseObject2, accordingTo)) {
+                return true;
+            } else {
+                if (thisConstraintSize == 0 || otherConstraintSize == 0) {
+                    return DefaultDatabaseObjectComparator.nameMatches(databaseObject1, databaseObject2, accordingTo);
+                }
+
+                if (thisConstraintSize > 0 && otherConstraintSize > 0 && thisConstraintSize != otherConstraintSize) {
                     return false;
                 }
+
+                for (int i = 0; i < otherConstraintSize; i++) {
+                    if (!DatabaseObjectComparatorFactory.getInstance().isSameObject(thisConstraint.getColumns().get(i).setRelation(thisConstraint.getTable()), otherConstraint.getColumns().get(i).setRelation(otherConstraint.getTable()), accordingTo)) {
+                        return false;
+                    }
+                }
+                return true;
             }
-            return true;
         } else {
+            if (thisConstraintSize > 0 && otherConstraintSize > 0 && thisConstraintSize != otherConstraintSize) {
+                return false;
+            }
+
             if (!DefaultDatabaseObjectComparator.nameMatches(databaseObject1, databaseObject2, accordingTo)) {
                 return false;
             }
@@ -87,9 +102,11 @@ public class UniqueConstraintComparator implements DatabaseObjectComparator {
     public ObjectDifferences findDifferences(DatabaseObject databaseObject1, DatabaseObject databaseObject2, Database accordingTo, CompareControl compareControl, DatabaseObjectComparatorChain chain, Set<String> exclude) {
         exclude.add("name");
         exclude.add("columns");
+        exclude.add("backingIndex");
         ObjectDifferences differences = chain.findDifferences(databaseObject1, databaseObject2, accordingTo, compareControl, exclude);
 
         differences.compare("columns", databaseObject1, databaseObject2, new ObjectDifferences.DatabaseObjectNameCompareFunction(Column.class, accordingTo));
+        differences.compare("backingIndex", databaseObject1, databaseObject2, new ObjectDifferences.StandardCompareFunction(accordingTo));
         return differences;
     }
 }

@@ -5,6 +5,7 @@ import liquibase.database.jvm.JdbcConnection;
 import liquibase.exception.DatabaseException;
 import liquibase.exception.UnexpectedLiquibaseException;
 import liquibase.logging.LogFactory;
+import liquibase.logging.Logger;
 import liquibase.resource.ResourceAccessor;
 import liquibase.servicelocator.ServiceLocator;
 import liquibase.util.StringUtils;
@@ -19,8 +20,10 @@ public class DatabaseFactory {
     private static DatabaseFactory instance;
     private Map<String, SortedSet<Database>> implementedDatabases = new HashMap<String, SortedSet<Database>>();
     private Map<String, SortedSet<Database>> internalDatabases = new HashMap<String, SortedSet<Database>>();
+    private Logger log;
 
     private DatabaseFactory() {
+        log = new LogFactory().getLog();
         try {
             Class[] classes = ServiceLocator.getInstance().findClasses(Database.class);
 
@@ -107,7 +110,7 @@ public class DatabaseFactory {
         }
 
         if (foundDatabases.size() == 0) {
-            LogFactory.getLogger().warning("Unknown database: " + connection.getDatabaseProductName());
+            log.warning("Unknown database: " + connection.getDatabaseProductName());
             UnsupportedDatabase unsupportedDB = new UnsupportedDatabase();
             unsupportedDB.setConnection(connection);
             return unsupportedDB;
@@ -127,8 +130,9 @@ public class DatabaseFactory {
     public Database openDatabase(String url,
                             String username,
                             String password,
+                            String propertyProviderClass,
                             ResourceAccessor resourceAccessor) throws DatabaseException {
-        return openDatabase(url, username, password, null, null, null, resourceAccessor);
+        return openDatabase(url, username, password, null, null, null, propertyProviderClass, resourceAccessor);
     }
 
     public Database openDatabase(String url,
@@ -137,16 +141,18 @@ public class DatabaseFactory {
                             String driver,
                             String databaseClass,
                             String driverPropertiesFile,
+                            String propertyProviderClass,
                             ResourceAccessor resourceAccessor) throws DatabaseException {
-        return this.findCorrectDatabaseImplementation(openConnection(url, username, password, driver, databaseClass, driverPropertiesFile, resourceAccessor));
+        return this.findCorrectDatabaseImplementation(openConnection(url, username, password, driver, databaseClass, driverPropertiesFile, propertyProviderClass, resourceAccessor));
     }
 
     public DatabaseConnection openConnection(String url,
                                              String username,
                                              String password,
+                                             String propertyProvider,
                                              ResourceAccessor resourceAccessor) throws DatabaseException {
 
-        return openConnection(url, username, password, null, null, null, resourceAccessor);
+        return openConnection(url, username, password, null, null, null, propertyProvider, resourceAccessor);
     }
 
     public DatabaseConnection openConnection(String url,
@@ -155,9 +161,10 @@ public class DatabaseFactory {
                                              String driver,
                                              String databaseClass,
                                              String driverPropertiesFile,
+                                             String propertyProviderClass,
                                              ResourceAccessor resourceAccessor) throws DatabaseException {
         if (url.startsWith("offline:")) {
-            return new OfflineConnection(url);
+            return new OfflineConnection(url, resourceAccessor);
         }
 
         driver = StringUtils.trimToNull(driver);
@@ -187,8 +194,12 @@ public class DatabaseFactory {
                 throw new RuntimeException("Cannot find database driver: " + e.getMessage());
             }
 
-
-            Properties driverProperties = new Properties();
+            Properties driverProperties;
+            if (propertyProviderClass == null) {
+                driverProperties = new Properties();
+            } else {
+                driverProperties = (Properties) Class.forName(propertyProviderClass, true, resourceAccessor.toClassLoader()).newInstance();
+            }
 
             if (username != null) {
                 driverProperties.put("user", username);

@@ -3,6 +3,9 @@
 package org.liquibase.maven.plugins;
 
 import java.text.*;
+
+import liquibase.Contexts;
+import liquibase.LabelExpression;
 import liquibase.exception.LiquibaseException;
 import liquibase.Liquibase;
 import org.apache.maven.plugin.MojoFailureException;
@@ -42,10 +45,17 @@ public class LiquibaseRollback extends AbstractLiquibaseChangeLogMojo {
   /** The type of the rollback that is being performed. */
   protected RollbackType type;
 
-  @Override
+    /** External script containing rollback logic. Set to override the rollback logic contained in the changelog*/
+    protected String rollbackScript;
+
+    @Override
   protected void checkRequiredParametersAreSpecified() throws MojoFailureException {
     super.checkRequiredParametersAreSpecified();
 
+    checkRequiredRollbackParameters();
+  }
+
+  protected void checkRequiredRollbackParameters() throws MojoFailureException {
     if (rollbackCount == -1 && rollbackDate == null && rollbackTag == null) {
       throw new MojoFailureException("One of the rollback options must be specified, "
                                      + "please specify one of rollbackTag, rollbackCount "
@@ -90,13 +100,13 @@ public class LiquibaseRollback extends AbstractLiquibaseChangeLogMojo {
   protected void performLiquibaseTask(Liquibase liquibase) throws LiquibaseException {
     switch (type) {
       case COUNT: {
-        liquibase.rollback(rollbackCount, contexts);
+        liquibase.rollback(rollbackCount, rollbackScript, new Contexts(contexts), new LabelExpression(labels));
         break;
       }
       case DATE: {
         DateFormat format = DateFormat.getDateInstance();
         try {
-          liquibase.rollback(format.parse(rollbackDate), contexts);
+          liquibase.rollback(format.parse(rollbackDate), rollbackScript,new Contexts(contexts), new LabelExpression(labels));
         }
         catch (ParseException e) {
           String message = "Error parsing rollbackDate: " + e.getMessage();
@@ -108,7 +118,7 @@ public class LiquibaseRollback extends AbstractLiquibaseChangeLogMojo {
         break;
       }
       case TAG: {
-        liquibase.rollback(rollbackTag, contexts);
+        liquibase.rollback(rollbackTag, rollbackScript,new Contexts(contexts), new LabelExpression(labels));
         break;
       }
       default: {

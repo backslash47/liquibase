@@ -9,6 +9,7 @@ import liquibase.structure.DatabaseObject;
 import liquibase.exception.DatabaseException;
 import liquibase.executor.ExecutorService;
 import liquibase.logging.LogFactory;
+import liquibase.statement.core.RawCallStatement;
 import liquibase.statement.core.RawSqlStatement;
 import liquibase.structure.core.Table;
 import liquibase.util.StringUtils;
@@ -35,7 +36,7 @@ public class PostgresDatabase extends AbstractJdbcDatabase {
                 "PLACING", "PRIMARY", "REFERENCES", "RETURNING", "RIGHT", "SELECT", "SESSION_USER", "SIMILAR", "SOME", "SYMMETRIC", "TABLE", "THEN", "TO", "TRAILING", "TRUE", "UNION", "UNIQUE", "USER", "USING", "VARIADIC", "VERBOSE", "WHEN", "WHERE", "WINDOW", "WITH"));
         super.sequenceNextValueFunction = "nextval('%s')";
         super.sequenceCurrentValueFunction = "currval('%s')";
-        super.unmodifiableDataTypes.addAll(Arrays.asList("bool", "int4", "int8", "float4", "float8", "numeric", "bigserial", "serial", "bytea", "timestamptz"));
+        super.unmodifiableDataTypes.addAll(Arrays.asList("bool", "int4", "int8", "float4", "float8", "bigserial", "serial", "bytea", "timestamptz", "text"));
         super.unquotedObjectsAreUppercased=false;
     }
 
@@ -235,7 +236,14 @@ public class PostgresDatabase extends AbstractJdbcDatabase {
 
     @Override
     protected String getConnectionSchemaName() {
-        return "public";
+        try {
+            String currentSchema = ExecutorService.getInstance().getExecutor(this)
+                    .queryForObject(new RawCallStatement("select current_schema"), String.class);
+            return currentSchema;
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get current schema", e);
+        }
     }
 
     private boolean catalogExists(String catalogName) throws DatabaseException {

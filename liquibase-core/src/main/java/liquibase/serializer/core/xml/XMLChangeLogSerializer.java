@@ -157,25 +157,26 @@ public class XMLChangeLogSerializer implements ChangeLogSerializer {
         Element node = currentChangeLogFileDOM.createElementNS(namespace, nodeName);
 
         for (String field : object.getSerializableFields()) {
-            setValueOnNode(node, field, object.getSerializableFieldValue(field), object.getSerializableFieldType(field));
+            setValueOnNode(node, object.getSerializableFieldNamespace(field), field, object.getSerializableFieldValue(field), object.getSerializableFieldType(field), namespace);
         }
 
         return node;
     }
 
-    private void setValueOnNode(Element node, String objectName, Object value, LiquibaseSerializable.SerializationType serializationType) {
+    private void setValueOnNode(Element node, String objectNamespace, String objectName, Object value, LiquibaseSerializable.SerializationType serializationType, String parentNamespace) {
         if (value == null) {
             return;
         }
 
         if (value instanceof Collection) {
             for (Object child : (Collection) value) {
-                setValueOnNode(node, objectName, child, serializationType);
+                setValueOnNode(node, objectNamespace, objectName, child, serializationType, parentNamespace);
             }
         } else if (value instanceof Map) {
             for (Map.Entry entry : (Set<Map.Entry>) ((Map) value).entrySet()) {
-                Element mapNode = currentChangeLogFileDOM.createElementNS(LiquibaseSerializable.STANDARD_CHANGELOG_NAMESPACE, objectName);
-                setValueOnNode(mapNode, (String) entry.getKey(), entry.getValue(), serializationType);
+                Element mapNode = currentChangeLogFileDOM.createElementNS(LiquibaseSerializable.STANDARD_CHANGELOG_NAMESPACE, qualifyName(objectName, objectNamespace, parentNamespace));
+                setValueOnNode(mapNode, objectNamespace, (String) entry.getKey(), entry.getValue(), serializationType, objectNamespace);
+                node.appendChild(mapNode);
             }
         } else if (value instanceof LiquibaseSerializable) {
             node.appendChild(createNode((LiquibaseSerializable) value));
@@ -186,8 +187,17 @@ public class XMLChangeLogSerializer implements ChangeLogSerializer {
             } else if (serializationType.equals(LiquibaseSerializable.SerializationType.DIRECT_VALUE)) {
                 node.setTextContent(value.toString());
             } else {
-                node.setAttribute(objectName, value.toString());
+                node.setAttribute(qualifyName(objectName, objectNamespace, parentNamespace), value.toString());
             }
+        }
+    }
+
+    private String qualifyName(String objectName, String objectNamespace, String parentNamespace) {
+        if (objectNamespace != null && !objectNamespace.equals(LiquibaseSerializable.STANDARD_CHANGELOG_NAMESPACE) && !objectNamespace.equals(parentNamespace)) {
+            NamespaceDetails details = NamespaceDetailsFactory.getInstance().getNamespaceDetails(this, objectNamespace);
+            return details.getShortName(objectNamespace) + ":" + objectName;
+        } else {
+            return objectName;
         }
     }
 

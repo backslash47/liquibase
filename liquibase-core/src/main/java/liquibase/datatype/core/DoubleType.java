@@ -11,9 +11,12 @@ public class DoubleType  extends LiquibaseDataType {
     @Override
     public DatabaseDataType toDatabaseDataType(Database database) {
         if (database instanceof MSSQLDatabase) {
-            return new DatabaseDataType("FLOAT");
+            return new DatabaseDataType(database.escapeDataTypeName("float"), 53);
         }
-        if (database instanceof DB2Database || database instanceof DerbyDatabase || database instanceof HsqlDatabase || database instanceof MySQLDatabase) {
+        if (database instanceof MySQLDatabase) {
+            return new DatabaseDataType("DOUBLE", getParameters());
+        }
+        if (database instanceof DB2Database || database instanceof DerbyDatabase || database instanceof HsqlDatabase) {
             return new DatabaseDataType("DOUBLE");
         }
         if (database instanceof OracleDatabase) {
@@ -23,6 +26,9 @@ public class DoubleType  extends LiquibaseDataType {
             return new DatabaseDataType("DOUBLE PRECISION");
         }
         if (database instanceof InformixDatabase) {
+            return new DatabaseDataType("DOUBLE PRECISION");
+        }
+        if (database instanceof FirebirdDatabase) {
             return new DatabaseDataType("DOUBLE PRECISION");
         }
         return super.toDatabaseDataType(database);

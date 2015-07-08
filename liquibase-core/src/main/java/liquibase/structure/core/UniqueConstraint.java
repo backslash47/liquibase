@@ -1,10 +1,14 @@
 package liquibase.structure.core;
 
+import liquibase.parser.core.ParsedNode;
+import liquibase.parser.core.ParsedNodeException;
+import liquibase.resource.ResourceAccessor;
 import liquibase.structure.AbstractDatabaseObject;
 import liquibase.structure.DatabaseObject;
 import liquibase.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class UniqueConstraint extends AbstractDatabaseObject {
@@ -16,25 +20,18 @@ public class UniqueConstraint extends AbstractDatabaseObject {
         setAttribute("disabled", false);
     }
 
-    public UniqueConstraint(String name, String tableCatalog, String tableSchema, String tableName, String... columns) {
+    public UniqueConstraint(String name, String tableCatalog, String tableSchema, String tableName, Column... columns) {
         this();
         setName(name);
         if (tableName != null && columns != null) {
             setTable(new Table(tableCatalog, tableSchema, tableName));
-            if (columns.length > 0) {
-                setColumns(StringUtils.join(columns, ","));
-            }
+            setColumns(new ArrayList<Column>(Arrays.asList(columns)));
         }
     }
 
 	@Override
     public DatabaseObject[] getContainingObjects() {
-		List<DatabaseObject> columns = new ArrayList<DatabaseObject>();
-		for (String column : this.getColumns()) {
-			columns.add(new Column().setName(column).setRelation(getTable()));
-		}
-
-		return columns.toArray(new DatabaseObject[columns.size()]);
+		return getColumns().toArray(new Column[getColumns().size()]);
 	}
 
 	@Override
@@ -67,22 +64,28 @@ public class UniqueConstraint extends AbstractDatabaseObject {
         return this;
     }
 
-	public List<String> getColumns() {
+	public List<Column> getColumns() {
 		return getAttribute("columns", List.class);
 	}
 
-    public UniqueConstraint setColumns(String columnNames) {
-        this.getColumns().addAll(StringUtils.splitAndTrim(columnNames, ","));
+    public UniqueConstraint setColumns(List<Column> columns) {
+        setAttribute("columns", columns);
+        if (getAttribute("table", Object.class) instanceof Table) {
+            for (Column column : getColumns()) {
+                column.setRelation(getTable());
+            }
+        }
+
         return this;
     }
 
-    public UniqueConstraint addColumn(int position, String columnName) {
+    public UniqueConstraint addColumn(int position, Column column) {
         if (position >= getColumns().size()) {
             for (int i = getColumns().size()-1; i < position; i++) {
                 this.getColumns().add(null);
             }
         }
-        this.getColumns().set(position, columnName);
+        this.getColumns().set(position, column);
         return this;
     }
 
@@ -105,7 +108,12 @@ public class UniqueConstraint extends AbstractDatabaseObject {
     }
 
 	public String getColumnNames() {
-		return StringUtils.join(getColumns(), ", ");
+		return StringUtils.join(getColumns(), ", ", new StringUtils.StringUtilsFormatter() {
+            @Override
+            public String toString(Object obj) {
+                return ((Column) obj).toString(false);
+            }
+        });
 	}
 
 	public UniqueConstraint setDisabled(boolean disabled) {
@@ -179,7 +187,12 @@ public class UniqueConstraint extends AbstractDatabaseObject {
 		return returnValue;
 	}
 
-	@Override
+    @Override
+    public void load(ParsedNode parsedNode, ResourceAccessor resourceAccessor) throws ParsedNodeException {
+        super.load(parsedNode, resourceAccessor);
+    }
+
+    @Override
 	public int hashCode() {
 		int result = 0;
 		if (this.getTable() != null) {
@@ -196,7 +209,11 @@ public class UniqueConstraint extends AbstractDatabaseObject {
 
 	@Override
 	public String toString() {
-		return getName() + " on " + getTable().getName() + "("
-				+ getColumnNames() + ")";
-	}
+        if (getTable() == null) {
+            return getName();
+        } else {
+            return getName() + " on " + getTable().getName() + "("
+                    + getColumnNames() + ")";
+        }
+    }
 }

@@ -3,6 +3,7 @@ package liquibase.structure;
 import liquibase.database.Database;
 import liquibase.diff.compare.DatabaseObjectComparatorFactory;
 import liquibase.exception.UnexpectedLiquibaseException;
+import liquibase.parser.NamespaceDetails;
 import liquibase.parser.core.ParsedNode;
 import liquibase.parser.core.ParsedNodeException;
 import liquibase.resource.ResourceAccessor;
@@ -28,6 +29,12 @@ public class DatabaseObjectCollection implements LiquibaseSerializable {
     public String getSerializedObjectNamespace() {
         return STANDARD_SNAPSHOT_NAMESPACE;
     }
+
+    @Override
+    public String getSerializableFieldNamespace(String field) {
+        return getSerializedObjectNamespace();
+    }
+
 
     @Override
     public Set<String> getSerializableFields() {
@@ -155,6 +162,15 @@ public class DatabaseObjectCollection implements LiquibaseSerializable {
     @Override
     public ParsedNode serialize() {
         throw new RuntimeException("TODO");
+    }
+
+    public Map<Class<? extends DatabaseObject>, Set<? extends DatabaseObject>> toMap() {
+        Map<Class<? extends DatabaseObject>, Set<? extends DatabaseObject>> returnMap = new HashMap<Class<? extends DatabaseObject>, Set<? extends DatabaseObject>>();
+        for (Class<? extends DatabaseObject> type : this.cache.keySet()) {
+            returnMap.put(type, get(type));
+        }
+
+        return returnMap;
     }
 
 }

@@ -1,6 +1,5 @@
 package liquibase.diff.output.changelog;
 
-import liquibase.CatalogAndSchema;
 import liquibase.change.Change;
 import liquibase.changelog.ChangeSet;
 import liquibase.configuration.GlobalConfiguration;
@@ -18,7 +17,6 @@ import liquibase.serializer.ChangeLogSerializerFactory;
 import liquibase.serializer.core.xml.XMLChangeLogSerializer;
 import liquibase.structure.DatabaseObject;
 import liquibase.structure.DatabaseObjectComparator;
-import liquibase.structure.core.*;
 import liquibase.util.StringUtils;
 
 import javax.xml.parsers.ParserConfigurationException;
@@ -86,24 +84,19 @@ public class DiffToChangeLog {
                 return;
             }
 
-            String lineSeparator = LiquibaseConfiguration.getInstance().getConfiguration(GlobalConfiguration.class).getOutputLineSeparator();
-            BufferedReader fileReader = new BufferedReader(new FileReader(file));
+            RandomAccessFile randomAccessFile = new RandomAccessFile(file, "rw");
             String line;
             long offset = 0;
-            while ((line = fileReader.readLine()) != null) {
+            while ((line = randomAccessFile.readLine()) != null) {
                 int index = line.indexOf("</databaseChangeLog>");
                 if (index >= 0) {
-                    offset += index;
+                    break;
                 } else {
-                    offset += line.getBytes().length;
-                    offset += lineSeparator.getBytes().length;
+                    offset = randomAccessFile.getFilePointer();
                 }
             }
-            fileReader.close();
 
-            // System.out.println("resulting XML: " + xml.trim());
-
-            RandomAccessFile randomAccessFile = new RandomAccessFile(file, "rw");
+            String lineSeparator = LiquibaseConfiguration.getInstance().getConfiguration(GlobalConfiguration.class).getOutputLineSeparator();
             randomAccessFile.seek(offset);
             randomAccessFile.writeBytes("    ");
             randomAccessFile.write(xml.getBytes());
@@ -138,7 +131,7 @@ public class DiffToChangeLog {
         List<ChangeSet> changeSets = new ArrayList<ChangeSet>();
         List<Class<? extends DatabaseObject>> types = getOrderedOutputTypes(MissingObjectChangeGenerator.class);
         for (Class<? extends DatabaseObject> type : types) {
-            ObjectQuotingStrategy quotingStrategy = ObjectQuotingStrategy.QUOTE_ALL_OBJECTS;
+            ObjectQuotingStrategy quotingStrategy = diffOutputControl.getObjectQuotingStrategy();
             for (DatabaseObject object : diffResult.getMissingObjects(type, comparator)) {
                 if (object == null) {
                     continue;
@@ -152,7 +145,7 @@ public class DiffToChangeLog {
 
         types = getOrderedOutputTypes(UnexpectedObjectChangeGenerator.class);
         for (Class<? extends DatabaseObject> type : types) {
-            ObjectQuotingStrategy quotingStrategy = ObjectQuotingStrategy.QUOTE_ALL_OBJECTS;
+            ObjectQuotingStrategy quotingStrategy = diffOutputControl.getObjectQuotingStrategy();
             for (DatabaseObject object : diffResult.getUnexpectedObjects(type, comparator)) {
                 if (!diffResult.getComparisonSnapshot().getDatabase().isLiquibaseObject(object) && !diffResult.getComparisonSnapshot().getDatabase().isSystemObject(object)) {
                     Change[] changes = changeGeneratorFactory.fixUnexpected(object, diffOutputControl, diffResult.getReferenceSnapshot().getDatabase(), diffResult.getComparisonSnapshot().getDatabase());
@@ -163,7 +156,7 @@ public class DiffToChangeLog {
 
         types = getOrderedOutputTypes(ChangedObjectChangeGenerator.class);
         for (Class<? extends DatabaseObject> type : types) {
-            ObjectQuotingStrategy quotingStrategy = ObjectQuotingStrategy.QUOTE_ALL_OBJECTS;
+            ObjectQuotingStrategy quotingStrategy = diffOutputControl.getObjectQuotingStrategy();
             for (Map.Entry<? extends DatabaseObject, ObjectDifferences> entry : diffResult.getChangedObjects(type, comparator).entrySet()) {
                 if (!diffResult.getReferenceSnapshot().getDatabase().isLiquibaseObject(entry.getKey()) && !diffResult.getReferenceSnapshot().getDatabase().isSystemObject(entry.getKey())) {
                     Change[] changes = changeGeneratorFactory.fixChanged(entry.getKey(), entry.getValue(), diffOutputControl, diffResult.getReferenceSnapshot().getDatabase(), diffResult.getComparisonSnapshot().getDatabase());
@@ -197,8 +190,15 @@ public class DiffToChangeLog {
 
     private void addToChangeSets(Change[] changes, List<ChangeSet> changeSets, ObjectQuotingStrategy quotingStrategy) {
         if (changes != null) {
+            String changeSetContext = this.changeSetContext;
+            if (diffOutputControl.getContext() != null) {
+                changeSetContext = diffOutputControl.getContext().toString().replaceFirst("^\\(", "").replaceFirst("\\)$", "");
+            }
             ChangeSet changeSet = new ChangeSet(generateId(), getChangeSetAuthor(), false, false, null, changeSetContext,
-                    null, quotingStrategy, null);
+                    null, false, quotingStrategy, null);
+            if (diffOutputControl.getLabels() != null) {
+                changeSet.setLabels(diffOutputControl.getLabels());
+            }
             for (Change change : changes) {
                 changeSet.addChange(change);
             }

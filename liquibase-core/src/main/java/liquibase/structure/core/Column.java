@@ -2,19 +2,34 @@ package liquibase.structure.core;
 
 import liquibase.change.ColumnConfig;
 import liquibase.change.ConstraintsConfig;
-import liquibase.database.Database;
-import liquibase.datatype.DataTypeFactory;
+import liquibase.exception.UnexpectedLiquibaseException;
+import liquibase.parser.core.ParsedNode;
+import liquibase.parser.core.ParsedNodeException;
+import liquibase.resource.ResourceAccessor;
 import liquibase.structure.AbstractDatabaseObject;
 import liquibase.structure.DatabaseObject;
+import liquibase.util.ISODateFormat;
+import liquibase.util.StringUtils;
 
+import java.lang.reflect.InvocationTargetException;
 import java.math.BigInteger;
+import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Column extends AbstractDatabaseObject {
 
     private String name;
+    private Boolean computed;
 
     public Column() {
+    }
+
+    public Column(String columnName) {
+        setName(columnName);
     }
 
     public Column(Class<? extends Relation> relationType, String catalogName, String schemaName, String tableName, String columnName) {
@@ -34,7 +49,7 @@ public class Column extends AbstractDatabaseObject {
             setDefaultValue(columnConfig.getDefaultValueObject());
         }
 
-        if (columnConfig.isAutoIncrement()) {
+        if (columnConfig.isAutoIncrement() != null && columnConfig.isAutoIncrement()) {
             setAutoIncrementInformation(new AutoIncrementInformation(columnConfig.getStartWith(), columnConfig.getIncrementBy()));
         }
 
@@ -86,6 +101,26 @@ public class Column extends AbstractDatabaseObject {
         return this;
     }
 
+    public Column setName(String name, boolean computed) {
+        setName(name);
+        setComputed(computed);
+
+        return this;
+    }
+
+
+
+    public Boolean getComputed() {
+        return computed;
+    }
+
+    public Column setComputed(Boolean computed) {
+        this.computed = computed;
+        setAttribute("computed", computed);
+
+        return this;
+    }
+
     public Boolean isNullable() {
         return getAttribute("nullable", Boolean.class);
     }
@@ -129,10 +164,23 @@ public class Column extends AbstractDatabaseObject {
         setAttribute("autoIncrementInformation", autoIncrementInformation);
     }
 
+
+    public String toString(boolean includeRelation) {
+        if (includeRelation) {
+            return toString();
+        } else {
+            return getName();
+        }
+    }
+
     @Override
     public String toString() {
-        String tableOrViewName = getRelation().getName();
-        return tableOrViewName + "." + getName();
+        if (getRelation() == null) {
+            return getName();
+        } else {
+            String tableOrViewName = getRelation().getName();
+            return tableOrViewName + "." + getName();
+        }
     }
 
 
@@ -151,7 +199,7 @@ public class Column extends AbstractDatabaseObject {
             }
 
             if (returnValue == 0) {
-                returnValue = this.getName().compareTo(o.getName());
+                returnValue = this.toString().compareTo(o.toString());
             }
 
             return returnValue;
@@ -169,7 +217,7 @@ public class Column extends AbstractDatabaseObject {
 
             Column column = (Column) o;
 
-            return getName().equalsIgnoreCase(column.getName()) && !(getRelation() != null ? !getRelation().equals(column.getRelation()) : column.getRelation() != null);
+            return toString().equalsIgnoreCase(column.toString());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -178,14 +226,7 @@ public class Column extends AbstractDatabaseObject {
 
     @Override
     public int hashCode() {
-        try {
-            int result;
-            result = (getRelation() != null ? getRelation().hashCode() : 0);
-            result = 31 * result + getName().toUpperCase().hashCode();
-            return result;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        return toString().toUpperCase().hashCode();
     }
 
     public boolean isDataTypeDifferent(Column otherColumn) {
@@ -233,6 +274,37 @@ public class Column extends AbstractDatabaseObject {
         setAttribute("remarks", remarks);
 
         return this;
+    }
+
+    public static Column[] arrayFromNames(String columnNames) {
+        if (columnNames == null) {
+            return null;
+        }
+
+        List<String> columnNameList = StringUtils.splitAndTrim(columnNames, ",");
+        Column[] returnArray = new Column[columnNameList.size()];
+        for (int i=0; i<columnNameList.size(); i++) {
+            returnArray[i] = new Column(columnNameList.get(i));
+        }
+        return returnArray;
+    }
+
+    public static List<Column> listFromNames(String columnNames) {
+        if (columnNames == null) {
+            return null;
+        }
+        return Arrays.asList(arrayFromNames(columnNames));
+    }
+
+    @Override
+    public void load(ParsedNode parsedNode, ResourceAccessor resourceAccessor) throws ParsedNodeException {
+        super.load(parsedNode, resourceAccessor);
+        ParsedNode typeNode = parsedNode.getChild(null, "type");
+        if (typeNode != null) {
+            DataType type = new DataType();
+            type.load(typeNode, resourceAccessor);
+            setType(type);
+        }
     }
 
     public static class AutoIncrementInformation {

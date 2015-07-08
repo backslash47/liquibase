@@ -52,15 +52,14 @@ public class MissingIndexChangeGenerator implements MissingObjectChangeGenerator
         change.setIndexName(index.getName());
         change.setUnique(index.isUnique());
         change.setAssociatedWith(index.getAssociatedWithAsString());
+        change.setClustered(index.getClustered());
 
 //        if (index.getAssociatedWith().contains(Index.MARK_PRIMARY_KEY) || index.getAssociatedWith().contains(Index.MARK_FOREIGN_KEY) || index.getAssociatedWith().contains(Index.MARK_UNIQUE_CONSTRAINT)) {
 //            continue;
 //        }
 
-        for (String columnName : index.getColumns()) {
-            AddColumnConfig column = new AddColumnConfig();
-            column.setName(columnName);
-            change.addColumn(column);
+        for (Column column : index.getColumns()) {
+            change.addColumn(new AddColumnConfig(column));
         }
 
         return new Change[] { change };

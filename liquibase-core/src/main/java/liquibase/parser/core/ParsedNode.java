@@ -7,6 +7,7 @@ import liquibase.statement.SequenceNextValueFunction;
 import liquibase.util.ISODateFormat;
 import liquibase.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.*;
 
@@ -176,6 +177,17 @@ public class ParsedNode {
         return returnNode;
     }
 
+    public ParsedNode removeChild(String namespace, String name) throws ParsedNodeException {
+        ListIterator<ParsedNode> iterator = children.listIterator();
+        while (iterator.hasNext()) {
+            ParsedNode node = iterator.next();
+            if (nodeMatches(node, namespace, name)) {
+                iterator.remove();
+            }
+        }
+        return this;
+    }
+
     protected boolean nodeMatches(ParsedNode node, String namespace, String nodename) {
         return namespaceMatches(node, namespace) && node.getName().equals(nodename);
     }
@@ -231,6 +243,8 @@ public class ParsedNode {
                 return (T) Long.valueOf(rawValue.toString());
             } else if (type.equals(BigInteger.class)) {
                 return (T) new BigInteger(rawValue.toString());
+            } else if (type.equals(BigDecimal.class)) {
+                return (T) new BigDecimal(rawValue.toString());
             } else if (type.equals(Boolean.class) && rawValue instanceof String) {
                 return (T) Boolean.valueOf(rawValue.toString());
             } else if (type.isAssignableFrom(Date.class)) {

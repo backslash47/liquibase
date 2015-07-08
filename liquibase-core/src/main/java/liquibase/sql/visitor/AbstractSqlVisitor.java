@@ -1,8 +1,9 @@
 package liquibase.sql.visitor;
 
 import liquibase.ContextExpression;
+import liquibase.Labels;
 import liquibase.change.CheckSum;
-import liquibase.exception.SetupException;
+import liquibase.parser.NamespaceDetails;
 import liquibase.parser.core.ParsedNode;
 import liquibase.parser.core.ParsedNodeException;
 import liquibase.resource.ResourceAccessor;
@@ -18,6 +19,7 @@ public abstract class AbstractSqlVisitor implements SqlVisitor {
     private Set<String> applicableDbms;
     private boolean applyToRollback;
     private ContextExpression contexts;
+    private Labels labels;
 
     @Override
     public Set<String> getApplicableDbms() {
@@ -49,6 +51,14 @@ public abstract class AbstractSqlVisitor implements SqlVisitor {
         this.contexts = contexts;
     }
 
+    public Labels getLabels() {
+        return labels;
+    }
+
+    public void setLabels(Labels labels) {
+        this.labels = labels;
+    }
+
     @Override
     public CheckSum generateCheckSum() {
         return CheckSum.compute(new StringChangeLogSerializer().serialize(this, false));
@@ -78,6 +88,12 @@ public abstract class AbstractSqlVisitor implements SqlVisitor {
     public String getSerializedObjectNamespace() {
         return GENERIC_CHANGELOG_EXTENSION_NAMESPACE;
     }
+
+    @Override
+    public String getSerializableFieldNamespace(String field) {
+        return getSerializedObjectNamespace();
+    }
+
 
     @Override
     public void load(ParsedNode parsedNode, ResourceAccessor resourceAccessor) throws ParsedNodeException {

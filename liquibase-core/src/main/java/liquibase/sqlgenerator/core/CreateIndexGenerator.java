@@ -1,13 +1,15 @@
 package liquibase.sqlgenerator.core;
 
+import liquibase.change.AddColumnConfig;
 import liquibase.database.Database;
 import liquibase.database.core.*;
-import liquibase.structure.core.Index;
 import liquibase.exception.ValidationErrors;
+import liquibase.exception.Warnings;
 import liquibase.sql.Sql;
 import liquibase.sql.UnparsedSql;
 import liquibase.sqlgenerator.SqlGeneratorChain;
 import liquibase.statement.core.CreateIndexStatement;
+import liquibase.structure.core.Index;
 import liquibase.structure.core.Table;
 import liquibase.util.StringUtils;
 
@@ -26,6 +28,19 @@ public class CreateIndexGenerator extends AbstractSqlGenerator<CreateIndexStatem
             validationErrors.checkRequiredField("name", createIndexStatement.getIndexName());
         }
         return validationErrors;
+    }
+
+    @Override
+    public Warnings warn(CreateIndexStatement createIndexStatement, Database database, SqlGeneratorChain sqlGeneratorChain) {
+
+        Warnings warnings = super.warn(createIndexStatement, database, sqlGeneratorChain);
+        if (!(database instanceof MSSQLDatabase || database instanceof OracleDatabase || database instanceof DB2Database || database instanceof PostgresDatabase)) {
+            if (createIndexStatement.isClustered() != null && createIndexStatement.isClustered()) {
+                warnings.addWarning("Creating clustered index not supported with "+database);
+            }
+        }
+
+        return warnings;
     }
 
     @Override
@@ -55,19 +70,42 @@ public class CreateIndexGenerator extends AbstractSqlGenerator<CreateIndexStatem
 	    if (statement.isUnique() != null && statement.isUnique()) {
 		    buffer.append("UNIQUE ");
 	    }
-	    buffer.append("INDEX ");
+
+
+        if (database instanceof MSSQLDatabase) {
+            if (statement.isClustered() != null) {
+                if (statement.isClustered()) {
+                    buffer.append("CLUSTERED ");
+                } else {
+                    buffer.append("NONCLUSTERED ");
+                }
+            }
+        }
+
+        buffer.append("INDEX ");
 
 	    if (statement.getIndexName() != null) {
             String indexSchema = statement.getTableSchemaName();
             buffer.append(database.escapeIndexName(statement.getTableCatalogName(), indexSchema, statement.getIndexName())).append(" ");
 	    }
 	    buffer.append("ON ");
+        if (database instanceof OracleDatabase && statement.isClustered() != null && statement.isClustered()){
+            buffer.append("CLUSTER ");
+        }
 	    buffer.append(database.escapeTableName(statement.getTableCatalogName(), statement.getTableSchemaName(), statement.getTableName())).append("(");
-	    Iterator<String> iterator = Arrays.asList(statement.getColumns()).iterator();
+	    Iterator<AddColumnConfig> iterator = Arrays.asList(statement.getColumns()).iterator();
 	    while (iterator.hasNext()) {
-		    String column = iterator.next();
-		    buffer.append(database.escapeColumnName(statement.getTableCatalogName(), statement.getTableSchemaName(), statement.getTableName(), column));
-		    if (iterator.hasNext()) {
+            AddColumnConfig column = iterator.next();
+            if (column.getComputed() == null) {
+                buffer.append(database.escapeColumnName(statement.getTableCatalogName(), statement.getTableSchemaName(), statement.getTableName(), column.getName(), false));
+            } else {
+                if (column.getComputed()) {
+                    buffer.append(column.getName());
+                } else {
+                    buffer.append(database.escapeColumnName(statement.getTableCatalogName(), statement.getTableSchemaName(), statement.getTableName(), column.getName()));
+                }
+            }
+            if (iterator.hasNext()) {
 			    buffer.append(", ");
 		    }
 	    }
@@ -83,7 +121,11 @@ public class CreateIndexGenerator extends AbstractSqlGenerator<CreateIndexStatem
 		    }
 	    }
 
-	    return new Sql[]{new UnparsedSql(buffer.toString(), getAffectedIndex(statement))};
+        if (database instanceof DB2Database && statement.isClustered() != null && statement.isClustered()){
+            buffer.append(" CLUSTER");
+        }
+
+        return new Sql[] {new UnparsedSql(buffer.toString(), getAffectedIndex(statement))};
     }
 
     protected Index getAffectedIndex(CreateIndexStatement statement) {

@@ -109,7 +109,7 @@ public class SQLFileChange extends AbstractSQLChange {
             throw new IOException("Unable to read file '" + path + "'", e);
         }
         if (inputStream == null) {
-            throw new IOException("Unable to read file '" + path + "'");
+            throw new IOException("File does not exist: '" + path + "'");
         }
         return inputStream;
     }
@@ -143,7 +143,7 @@ public class SQLFileChange extends AbstractSQLChange {
                 if (getChangeSet() != null) {
                     ChangeLogParameters parameters = getChangeSet().getChangeLogParameters();
                     if (parameters != null) {
-                        content = parameters.expandExpressions(content);
+                        content = parameters.expandExpressions(content, getChangeSet().getChangeLog());
                     }
                 }
                 return content;
@@ -158,7 +158,7 @@ public class SQLFileChange extends AbstractSQLChange {
     @Override
     public void setSql(String sql) {
         if (getChangeSet() != null && getChangeSet().getChangeLogParameters() != null) {
-            sql = getChangeSet().getChangeLogParameters().expandExpressions(sql);
+            sql = getChangeSet().getChangeLogParameters().expandExpressions(sql, getChangeSet().getChangeLog());
         }
         super.setSql(sql);
     }
